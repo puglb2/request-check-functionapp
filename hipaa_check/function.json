@@ -1,0 +1,13 @@
+{
+  "bindings": [
+    {
+      "authLevel": "function",
+      "type": "httpTrigger",
+      "direction": "in",
+      "name": "req",
+      "methods": ["post"],
+      "route": "hipaa_check"
+    },
+    { "type": "http", "direction": "out", "name": "$return" }
+  ]
+}
