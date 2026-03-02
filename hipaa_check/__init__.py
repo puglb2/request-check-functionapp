@@ -37,6 +37,26 @@ CHECKLIST:
 OCR TEXT:
 {ocr_text[:20000]}
 """
+def score_results(results):
+    score = 0
+    total = len(results)
+
+    for r in results:
+        if r["status"] == "present":
+            score += 1
+        elif r["status"] == "unclear":
+            score += 0.5
+
+    percent = round((score / total) * 100, 2) if total else 0
+
+    if percent >= 90:
+        risk = "low"
+    elif percent >= 70:
+        risk = "moderate"
+    else:
+        risk = "high"
+
+    return percent, risk
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     rid = get_request_id(req)
@@ -84,10 +104,34 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         return _resp(502, rid, {"error": "Model call failed", "request_id": rid})
 
     # Try to pull content safely (varies by endpoint). We keep debug info either way.
-    result = {"request_id": rid, "raw": raw}
-    result["timing_ms"] = {"llm": t_llm.ms(), "total": t_all.ms()}
+    try:
+        content = raw["choices"][0]["message"]["content"]
+        parsed = json.loads(content)
+    except Exception:
+        return _resp(500, rid, {
+            "error": "Failed to parse model output",
+            "request_id": rid,
+            "raw": raw
+        })
 
-    return _resp(200, rid, result if debug else {"request_id": rid, "ok": True})
+    results_list = parsed.get("results", [])
+
+    percent, risk = score_results(results_list)
+
+    output = {
+        "request_id": rid,
+        "compliance_score": percent,
+        "risk_level": risk,
+        "results": results_list
+    }
+
+    if debug:
+         output["timing_ms"] = {
+            "llm": t_llm.ms(),
+            "total": t_all.ms()
+        }
+
+    return _resp(200, rid, output)
 
 def _resp(code: int, rid: str, obj: dict) -> func.HttpResponse:
     resp = func.HttpResponse(
