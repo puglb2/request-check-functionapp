@@ -2,11 +2,41 @@ import azure.functions as func
 import json
 from shared.logging_utils import Timer, get_request_id, log_json, safe_len
 from shared.openai_client import chat_json, OpenAIError
+from engine.checklist import HIPAA_CHECKLIST
 
-SYSTEM_PROMPT = (
-    "You are a compliance extraction engine. "
-    "Return ONLY JSON. No prose."
-)
+SYSTEM_PROMPT = """
+You are a HIPAA compliance evaluation engine.
+
+For each checklist item:
+- Determine if it is PRESENT, MISSING, or UNCLEAR
+- Base ONLY on the provided text
+- Do NOT guess
+
+Return STRICT JSON:
+{
+  "results": [
+    {
+      "id": "...",
+      "status": "present | missing | unclear",
+      "evidence": "short quote or reason"
+    }
+  ]
+}
+"""
+
+def build_user_prompt(ocr_text: str) -> str:
+    checklist_text = "\n".join([
+        f"- {item['id']}: {item['question']}"
+        for item in HIPAA_CHECKLIST
+    ])
+
+    return f"""
+CHECKLIST:
+{checklist_text}
+
+OCR TEXT:
+{ocr_text[:20000]}
+"""
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     rid = get_request_id(req)
@@ -44,11 +74,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         return _resp(200, rid, out)
 
     # Minimal model call placeholder (you’ll replace with real checklist logic)
-    user_prompt = (
-        "Extract whether this text looks like it contains ANY HIPAA compliance controls. "
-        "Return JSON with keys: {\"has_controls\": boolean, \"notes\": string}.\n\n"
-        f"OCR_TEXT:\n{ocr_text[:20000]}"
-    )
+    user_prompt = build_user_prompt(ocr_text)
 
     t_llm = Timer()
     try:
