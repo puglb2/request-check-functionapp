@@ -31,7 +31,6 @@ def chat_json(system: str, user: str, schema_hint: Optional[Dict[str, Any]] = No
 
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
         "api-key": OPENAI_API_KEY  # keeps Azure-compatible gateways happy
     }
 
