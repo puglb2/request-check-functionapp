@@ -1,2 +1,4 @@
 azure-functions
 requests
+azure-ai-documentintelligence
+azure-core
