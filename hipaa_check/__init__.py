@@ -3,7 +3,7 @@ import json
 
 from shared.logging_utils import Timer, get_request_id, log_json, safe_len
 from shared.openai_client import chat_json, OpenAIError
-#from shared.docintel import extract_text
+from shared.docintel import extract_text
 from engine.checklist import HIPAA_CHECKLIST
 
 
