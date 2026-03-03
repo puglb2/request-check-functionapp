@@ -48,6 +48,7 @@ def score_results(results):
 
     for r in results:
         status = r.get("status")
+
         if status == "present":
             score += 1
         elif status == "unclear":
@@ -66,18 +67,115 @@ def score_results(results):
 
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
+    rid = get_request_id(req)
+    t_all = Timer()
+    debug = req.params.get("debug") == "1"
+
+    ocr_text = None
+
+    # -----------------------------
+    # FILE UPLOAD (PDF / IMAGE)
+    # -----------------------------
+    if req.files:
+        file = req.files.get("file")
+
+        if not file:
+            return _resp(400, rid, {
+                "error": "File missing",
+                "request_id": rid
+            })
+
+        file_bytes = file.read()
+
+        try:
+            ocr_text = extract_text(file_bytes)
+        except Exception as e:
+            return _resp(500, rid, {
+                "error": "OCR failed",
+                "details": str(e),
+                "request_id": rid
+            })
+
+    # -----------------------------
+    # JSON TEXT INPUT
+    # -----------------------------
+    else:
+        try:
+            payload = req.get_json()
+            ocr_text = payload.get("ocr_text")
+        except Exception:
+            return _resp(400, rid, {
+                "error": "Invalid input",
+                "request_id": rid
+            })
+
+    if not ocr_text:
+        return _resp(400, rid, {
+            "error": "No text provided",
+            "request_id": rid
+        })
+
+    log_json("hipaa_check.request", {
+        "request_id": rid,
+        "ocr_chars": safe_len(ocr_text)
+    })
+
+    # -----------------------------
+    # LLM EVALUATION
+    # -----------------------------
+    user_prompt = build_user_prompt(ocr_text)
+    t_llm = Timer()
+
     try:
-        return func.HttpResponse(
-            json.dumps({"step": "function started"}),
-            mimetype="application/json",
-            status_code=200
+        raw = chat_json(
+            SYSTEM_PROMPT,
+            user_prompt,
+            schema_hint={"type": "object"},
+            temperature=0.1
         )
-    except Exception as e:
-        return func.HttpResponse(
-            json.dumps({"fatal_error": str(e)}),
-            mimetype="application/json",
-            status_code=500
-        )
+    except OpenAIError as e:
+        return _resp(502, rid, {
+            "error": "Model call failed",
+            "details": str(e),
+            "request_id": rid
+        })
+
+    # -----------------------------
+    # PARSE MODEL OUTPUT
+    # -----------------------------
+    try:
+        content = raw["choices"][0]["message"]["content"]
+        parsed = json.loads(content)
+    except Exception:
+        return _resp(500, rid, {
+            "error": "Failed to parse model output",
+            "request_id": rid
+        })
+
+    results_list = parsed.get("results", [])
+
+    percent, risk = score_results(results_list)
+
+    missing_items = [
+        r["id"] for r in results_list
+        if r.get("status") == "missing"
+    ]
+
+    output = {
+        "request_id": rid,
+        "compliance_score": percent,
+        "risk_level": risk,
+        "missing_items": missing_items,
+        "results": results_list
+    }
+
+    if debug:
+        output["timing_ms"] = {
+            "llm": t_llm.ms(),
+            "total": t_all.ms()
+        }
+
+    return _resp(200, rid, output)
 
 
 def _resp(code: int, rid: str, obj: dict) -> func.HttpResponse:
