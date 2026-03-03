@@ -26,7 +26,7 @@ def extract_structured_fields(ocr_text: str):
 
     raw = chat_json(
         SYSTEM_PROMPT_EXTRACT,
-        ocr_text[:12000],
+        f"DOCUMENT TEXT:\n\n{ocr_text[:12000]}",
         schema_hint={"type": "object"},
         temperature=0
     )
