@@ -66,116 +66,94 @@ def score_results(results):
     return percent, risk
 
 
+from engine.extract_fields import extract_structured_fields
+
 def main(req: func.HttpRequest) -> func.HttpResponse:
     rid = get_request_id(req)
-    t_all = Timer()
     debug = req.params.get("debug") == "1"
 
     ocr_text = None
 
-    # -----------------------------
-    # FILE UPLOAD (PDF / IMAGE)
-    # -----------------------------
+    # FILE UPLOAD
     if req.files:
         file = req.files.get("file")
-
         if not file:
-            return _resp(400, rid, {
-                "error": "File missing",
-                "request_id": rid
-            })
-
-        file_bytes = file.read()
+            return _resp(400, rid, {"error": "File missing"})
 
         try:
-            ocr_text = extract_text(file_bytes)
+            ocr_text = extract_text(file.read())
         except Exception as e:
             return _resp(500, rid, {
                 "error": "OCR failed",
-                "details": str(e),
-                "request_id": rid
+                "details": str(e)
             })
 
-    # -----------------------------
-    # JSON TEXT INPUT
-    # -----------------------------
+    # JSON INPUT
     else:
         try:
             payload = req.get_json()
             ocr_text = payload.get("ocr_text")
         except Exception:
-            return _resp(400, rid, {
-                "error": "Invalid input",
-                "request_id": rid
-            })
+            return _resp(400, rid, {"error": "Invalid input"})
 
     if not ocr_text:
-        return _resp(400, rid, {
-            "error": "No text provided",
-            "request_id": rid
-        })
+        return _resp(400, rid, {"error": "No text provided"})
 
-    log_json("hipaa_check.request", {
-        "request_id": rid,
-        "ocr_chars": safe_len(ocr_text)
-    })
-
-    # -----------------------------
-    # LLM EVALUATION
-    # -----------------------------
-    user_prompt = build_user_prompt(ocr_text)
-    t_llm = Timer()
+    # ------------------------
+    # LLM STRUCTURED EXTRACTION
+    # ------------------------
 
     try:
-        raw = chat_json(
-            SYSTEM_PROMPT,
-            user_prompt,
-            schema_hint={"type": "object"},
-            temperature=0.1
-        )
-    except OpenAIError as e:
-        return _resp(502, rid, {
-            "error": "Model call failed",
-            "details": str(e),
-            "request_id": rid
-        })
-
-    # -----------------------------
-    # PARSE MODEL OUTPUT
-    # -----------------------------
-    try:
-        content = raw["choices"][0]["message"]["content"]
-        parsed = json.loads(content)
-    except Exception:
+        fields = extract_structured_fields(ocr_text)
+    except Exception as e:
         return _resp(500, rid, {
-            "error": "Failed to parse model output",
-            "request_id": rid
+            "error": "Field extraction failed",
+            "details": str(e)
         })
 
-    results_list = parsed.get("results", [])
+    # ------------------------
+    # DETERMINISTIC RULE ENGINE
+    # ------------------------
 
-    percent, risk = score_results(results_list)
+    results = []
 
-    missing_items = [
-        r["id"] for r in results_list
-        if r.get("status") == "missing"
-    ]
+    def mark(id, present, evidence):
+        results.append({
+            "id": id,
+            "status": "present" if present else "missing",
+            "evidence": evidence
+        })
 
-    output = {
+    mark("PATIENT_NAME",
+         bool(fields.get("patient_name")),
+         fields.get("patient_name"))
+
+    mark("DOB",
+         bool(fields.get("dob")),
+         fields.get("dob"))
+
+    mark("SIGNATURE",
+         fields.get("signature_present") is True,
+         "Signature detected" if fields.get("signature_present") else "No signature found")
+
+    mark("DATE_SIGNED",
+         bool(fields.get("date_signed")),
+         fields.get("date_signed"))
+
+    total = len(results)
+    present = sum(1 for r in results if r["status"] == "present")
+
+    score = round((present / total) * 100, 2) if total else 0
+
+    risk = "low" if score >= 90 else "moderate" if score >= 70 else "high"
+
+    return _resp(200, rid, {
         "request_id": rid,
-        "compliance_score": percent,
+        "compliance_score": score,
         "risk_level": risk,
-        "missing_items": missing_items,
-        "results": results_list
-    }
-
-    if debug:
-        output["timing_ms"] = {
-            "llm": t_llm.ms(),
-            "total": t_all.ms()
-        }
-
-    return _resp(200, rid, output)
+        "extracted_fields": fields,
+        "results": results
+    })
 
 
 def _resp(code: int, rid: str, obj: dict) -> func.HttpResponse:
