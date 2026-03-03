@@ -67,22 +67,41 @@ def score_results(results):
 def main(req: func.HttpRequest) -> func.HttpResponse:
     rid = get_request_id(req)
     t_all = Timer()
-
-    try:
-        payload = req.get_json()
-    except Exception:
-        return _resp(400, rid, {"error": "Invalid JSON body", "request_id": rid})
-
-    ocr_text = payload.get("ocr_text", "")
     debug = req.params.get("debug") == "1"
+
+    # -----------------------------
+    # FILE UPLOAD SUPPORT
+    # -----------------------------
+    if req.files:
+        file = req.files.get("file")
+
+        if not file:
+            return _resp(400, rid, {"error": "File missing", "request_id": rid})
+
+        file_bytes = file.read()
+
+        try:
+            ocr_text = file_bytes.decode("utf-8", errors="ignore")
+        except Exception:
+            return _resp(400, rid, {"error": "Unable to decode file", "request_id": rid})
+
+    # -----------------------------
+    # JSON TEXT SUPPORT
+    # -----------------------------
+    else:
+        try:
+            payload = req.get_json()
+            ocr_text = payload.get("ocr_text", "")
+        except Exception:
+            return _resp(400, rid, {"error": "Invalid input", "request_id": rid})
+
+    if not ocr_text:
+        return _resp(400, rid, {"error": "No text provided", "request_id": rid})
 
     log_json("hipaa_check.request", {
         "request_id": rid,
         "ocr_chars": safe_len(ocr_text)
     })
-
-    if not ocr_text:
-        return _resp(400, rid, {"error": "ocr_text is required", "request_id": rid})
 
     user_prompt = build_user_prompt(ocr_text)
 
@@ -102,7 +121,9 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         })
         return _resp(502, rid, {"error": "Model call failed", "request_id": rid})
 
-    # Parse model response safely
+    # -----------------------------
+    # PARSE MODEL OUTPUT
+    # -----------------------------
     try:
         content = raw["choices"][0]["message"]["content"]
         parsed = json.loads(content)
