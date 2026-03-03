@@ -52,4 +52,6 @@ def extract_text(file_input) -> str:
             for line in page.lines:
                 full_text.append(line.content)
 
-    return "\n".join(full_text)
+    text_output = "\n".join(full_text)
+
+    return f"[PAGES DETECTED: {len(result.pages)}]\n\n{text_output}"
