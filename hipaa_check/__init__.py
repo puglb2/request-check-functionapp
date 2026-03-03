@@ -7,24 +7,44 @@ from shared.docintel import extract_text
 from engine.checklist import HIPAA_CHECKLIST
 
 
-SYSTEM_PROMPT = """
-You are a HIPAA compliance evaluation engine.
+SYSTEM_PROMPT_EXTRACT = """
+You are extracting structured fields from medical authorization documents.
 
-For each checklist item:
-- Determine if it is PRESENT, MISSING, or UNCLEAR
-- Base ONLY on the provided text
-- Do NOT guess
+Search the ENTIRE text carefully.
 
-Return STRICT JSON:
-{
-  "results": [
-    {
-      "id": "...",
-      "status": "present | missing | unclear",
-      "evidence": "short quote or reason"
-    }
-  ]
-}
+Fields to extract:
+
+1. patient_name
+   - May appear after labels like:
+     "Patient Name"
+     "Print Name"
+     "Name"
+   - May appear on the next line.
+   - If a full human name appears anywhere, extract it.
+
+2. dob
+   - May appear as:
+     "DOB"
+     "Date of Birth"
+   - Extract full date if found.
+
+3. signature_present
+   - True if document appears signed.
+   - If the word "signature" appears AND a handwritten or signed indication exists, return true.
+
+4. date_signed
+   - May appear as:
+     "Date"
+     "Date Signed"
+     Near signature lines.
+
+Important:
+- Search entire document.
+- Do not require strict formatting.
+- If uncertain, return null.
+- Do NOT hallucinate.
+
+Return STRICT JSON only.
 """
 
 
