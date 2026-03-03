@@ -70,18 +70,19 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     t_all = Timer()
     debug = req.params.get("debug") == "1"
 
-    # --------------------------------
-    # INPUT HANDLING
-    # --------------------------------
-
     ocr_text = None
 
-    # FILE UPLOAD (PDF / image / etc.)
+    # -----------------------------
+    # FILE UPLOAD (OCR)
+    # -----------------------------
     if req.files:
         file = req.files.get("file")
 
         if not file:
-            return _resp(400, rid, {"error": "File missing", "request_id": rid})
+            return _resp(400, rid, {
+                "error": "File missing",
+                "request_id": rid
+            })
 
         file_bytes = file.read()
 
@@ -89,30 +90,38 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             ocr_text = extract_text(file_bytes)
         except Exception as e:
             return _resp(500, rid, {
-                "error": f"OCR failed: {str(e)}",
+                "error": "OCR failed",
+                "details": str(e),
                 "request_id": rid
             })
 
+    # -----------------------------
     # JSON TEXT INPUT
+    # -----------------------------
     else:
         try:
             payload = req.get_json()
             ocr_text = payload.get("ocr_text")
         except Exception:
-            return _resp(400, rid, {"error": "Invalid input", "request_id": rid})
+            return _resp(400, rid, {
+                "error": "Invalid input",
+                "request_id": rid
+            })
 
     if not ocr_text:
-        return _resp(400, rid, {"error": "No text provided", "request_id": rid})
+        return _resp(400, rid, {
+            "error": "No text provided",
+            "request_id": rid
+        })
 
     log_json("hipaa_check.request", {
         "request_id": rid,
         "ocr_chars": safe_len(ocr_text)
     })
 
-    # --------------------------------
-    # BUILD PROMPT
-    # --------------------------------
-
+    # -----------------------------
+    # LLM CALL
+    # -----------------------------
     user_prompt = build_user_prompt(ocr_text)
     t_llm = Timer()
 
@@ -124,22 +133,22 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             temperature=0.1
         )
     except OpenAIError as e:
-        log_json("hipaa_check.openai_error", {
-            "request_id": rid,
-            "error": str(e)
+        return _resp(502, rid, {
+            "error": "Model call failed",
+            "details": str(e),
+            "request_id": rid
         })
-        return _resp(502, rid, {"error": "Model call failed", "request_id": rid})
 
-    # --------------------------------
+    # -----------------------------
     # PARSE MODEL OUTPUT
-    # --------------------------------
-
+    # -----------------------------
     try:
         content = raw["choices"][0]["message"]["content"]
         parsed = json.loads(content)
     except Exception:
         return _resp(500, rid, {
             "error": "Failed to parse model output",
+            "raw_response": raw,
             "request_id": rid
         })
 
