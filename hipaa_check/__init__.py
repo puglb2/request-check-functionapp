@@ -3,8 +3,8 @@ import json
 
 from shared.logging_utils import Timer, get_request_id, log_json, safe_len
 from shared.openai_client import chat_json, OpenAIError
-from engine.checklist import HIPAA_CHECKLIST
 from shared.docintel import extract_text
+from engine.checklist import HIPAA_CHECKLIST
 
 
 SYSTEM_PROMPT = """
@@ -29,10 +29,9 @@ Return STRICT JSON:
 
 
 def build_user_prompt(ocr_text: str) -> str:
-    checklist_text = "\n".join([
-        f"- {item['id']}: {item['question']}"
-        for item in HIPAA_CHECKLIST
-    ])
+    checklist_text = "\n".join(
+        [f"- {item['id']}: {item['question']}" for item in HIPAA_CHECKLIST]
+    )
 
     return f"""
 CHECKLIST:
@@ -48,9 +47,10 @@ def score_results(results):
     total = len(results)
 
     for r in results:
-        if r.get("status") == "present":
+        status = r.get("status")
+        if status == "present":
             score += 1
-        elif r.get("status") == "unclear":
+        elif status == "unclear":
             score += 0.5
 
     percent = round((score / total) * 100, 2) if total else 0
@@ -70,9 +70,13 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     t_all = Timer()
     debug = req.params.get("debug") == "1"
 
-    # -----------------------------
-    # FILE UPLOAD SUPPORT
-    # -----------------------------
+    # --------------------------------
+    # INPUT HANDLING
+    # --------------------------------
+
+    ocr_text = None
+
+    # FILE UPLOAD (PDF / image / etc.)
     if req.files:
         file = req.files.get("file")
 
@@ -82,17 +86,18 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         file_bytes = file.read()
 
         try:
-            ocr_text = file_bytes.decode("utf-8", errors="ignore")
-        except Exception:
-            return _resp(400, rid, {"error": "Unable to decode file", "request_id": rid})
+            ocr_text = extract_text(file_bytes)
+        except Exception as e:
+            return _resp(500, rid, {
+                "error": f"OCR failed: {str(e)}",
+                "request_id": rid
+            })
 
-    # -----------------------------
-    # JSON TEXT SUPPORT
-    # -----------------------------
+    # JSON TEXT INPUT
     else:
         try:
             payload = req.get_json()
-            ocr_text = payload.get("ocr_text", "")
+            ocr_text = payload.get("ocr_text")
         except Exception:
             return _resp(400, rid, {"error": "Invalid input", "request_id": rid})
 
@@ -104,8 +109,11 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         "ocr_chars": safe_len(ocr_text)
     })
 
-    user_prompt = build_user_prompt(ocr_text)
+    # --------------------------------
+    # BUILD PROMPT
+    # --------------------------------
 
+    user_prompt = build_user_prompt(ocr_text)
     t_llm = Timer()
 
     try:
@@ -122,9 +130,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         })
         return _resp(502, rid, {"error": "Model call failed", "request_id": rid})
 
-    # -----------------------------
+    # --------------------------------
     # PARSE MODEL OUTPUT
-    # -----------------------------
+    # --------------------------------
+
     try:
         content = raw["choices"][0]["message"]["content"]
         parsed = json.loads(content)
