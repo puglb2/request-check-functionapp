@@ -39,8 +39,9 @@ def extract_text(file_input) -> str:
     )
 
     poller = client.begin_analyze_document(
-        model_id="prebuilt-layout",
-        body=file_bytes
+        model_id="prebuilt-read",
+        body=file_bytes,
+        pages="1-10"
     )
 
     result = poller.result()
