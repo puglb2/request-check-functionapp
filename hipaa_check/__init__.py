@@ -5,203 +5,103 @@ import re
 from shared.logging_utils import Timer, get_request_id, log_json, safe_len
 from shared.openai_client import chat_json, OpenAIError
 from shared.docintel import extract_text
-from engine.checklist import HIPAA_CHECKLIST
 
-
-SYSTEM_PROMPT = """
-You are a HIPAA compliance evaluation engine.
-
-For each checklist item:
-- Determine if it is PRESENT, MISSING, or UNCLEAR
-- Base ONLY on the provided text
-- Do NOT guess.
-
-Return STRICT JSON:
-
-{
-  "results": [
-    {
-      "id": "...",
-      "status": "present | missing | unclear",
-      "evidence": "short quote or reason"
-    }
-  ]
-}
-"""
-
-
-def build_user_prompt(ocr_text: str) -> str:
-
-    checklist_text = "\n".join([
-        f"- {item['id']}: {item['question']}"
-        for item in HIPAA_CHECKLIST
-    ])
-
-    return f"""
-CHECKLIST:
-{checklist_text}
-
-DOCUMENT TEXT:
-{ocr_text[:12000]}
-"""
-
-
-def score_results(results):
-
-    score = 0
-    total = len(results)
-
-    for r in results:
-
-        status = r.get("status")
-
-        if status == "present":
-            score += 1
-
-        elif status == "unclear":
-            score += 0.5
-
-    percent = round((score / total) * 100, 2) if total else 0
-
-    if percent >= 90:
-        risk = "low"
-    elif percent >= 70:
-        risk = "moderate"
-    else:
-        risk = "high"
-
-    return percent, risk
+from engine.prompts import HIPAA_FACTS_SYSTEM
+from engine.rules import run_doc_kind_rules, run_signature_delegation_rules, score_results
+from engine.signature_vision import classify_signature_from_pdf
 
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
-
     rid = get_request_id(req)
     t_all = Timer()
+    debug = req.params.get("debug") == "1"
+    reviewer = req.params.get("reviewer")  # "1" or "2" optional
 
-    # -----------------------------
-    # GET FILE BYTES
-    # -----------------------------
+    if not req.files:
+        return _resp(400, rid, {"error": "File required", "request_id": rid})
 
-    file_bytes = None
+    f = req.files.get("file")
+    if not f:
+        return _resp(400, rid, {"error": "File missing", "request_id": rid})
 
-    try:
-        if req.files:
-            file = req.files.get("file")
-            if file:
-                file_bytes = file.read()
-    except Exception:
-        pass
+    pdf_bytes = f.read()
 
-    if not file_bytes:
-        file_bytes = req.get_body()
-
-    if not file_bytes:
-        return _resp(400, rid, {"error": "File required"})
-
-    # -----------------------------
     # OCR
-    # -----------------------------
-
     try:
-        ocr_text = extract_text(file_bytes)
+        ocr_text = extract_text(pdf_bytes)
     except Exception as e:
-        return _resp(500, rid, {
-            "error": "OCR failed",
-            "details": str(e)
-        })
+        return _resp(500, rid, {"error": "OCR failed", "details": str(e), "request_id": rid})
 
-    # -----------------------------
-    # CLEAN OCR TEXT
-    # -----------------------------
-
-    ocr_text = re.sub(r'\r', '', ocr_text)
-    ocr_text = re.sub(r'\n+', '\n', ocr_text)
-    ocr_text = re.sub(r'[ \t]+', ' ', ocr_text)
+    # Clean
+    ocr_text = re.sub(r"\r", "", ocr_text)
+    ocr_text = re.sub(r"\n+", "\n", ocr_text)
+    ocr_text = re.sub(r"[ \t]+", " ", ocr_text)
 
     log_json("hipaa_check.request", {
         "request_id": rid,
-        "ocr_chars": safe_len(ocr_text)
+        "ocr_chars": safe_len(ocr_text),
+        "reviewer": reviewer
     })
 
-    # -----------------------------
-    # BUILD PROMPT
-    # -----------------------------
+    # Vision signature screening (handwritten vs typed/unknown)
+    sig = classify_signature_from_pdf(pdf_bytes)
 
-    user_prompt = build_user_prompt(ocr_text)
-
+    # LLM facts extraction (no guessing)
     t_llm = Timer()
-
     try:
-
         raw = chat_json(
-            SYSTEM_PROMPT,
-            user_prompt,
+            HIPAA_FACTS_SYSTEM,
+            f"DOCUMENT TEXT:\n{ocr_text[:16000]}",
             schema_hint={"type": "object"},
-            temperature=0.1
+            temperature=0.0
         )
-
     except OpenAIError as e:
-
-        log_json("hipaa_check.openai_error", {
-            "request_id": rid,
-            "error": str(e)
-        })
-
-        return _resp(502, rid, {
-            "error": "Model call failed",
-            "request_id": rid
-        })
-
-    # -----------------------------
-    # PARSE MODEL OUTPUT
-    # -----------------------------
+        return _resp(502, rid, {"error": "Model call failed", "details": str(e), "request_id": rid})
 
     try:
-
         content = raw["choices"][0]["message"]["content"]
-        parsed = json.loads(content)
-
+        facts = json.loads(content)
     except Exception:
+        return _resp(500, rid, {"error": "Failed to parse model output", "request_id": rid})
 
-        return _resp(500, rid, {
-            "error": "Failed to parse model output",
-            "request_id": rid
-        })
+    # Override patient_signed if signature is clearly not handwritten
+    # (you said typed/e-sig not acceptable)
+    if sig.get("signature_type") != "handwritten":
+        # If LLM said signed but vision says not handwritten, mark as false
+        facts["patient_signed"] = False
 
-    results_list = parsed.get("results", [])
+    # Rules
+    results = []
+    results.extend(run_doc_kind_rules(facts))
+    results.extend(run_signature_delegation_rules(facts))
 
-    percent, risk = score_results(results_list)
+    score, risk = score_results(results)
+    missing = [r["id"] for r in results if r["status"] == "missing"]
 
-    missing_items = [
-        r["id"] for r in results_list
-        if r.get("status") == "missing"
-    ]
-
-    output = {
+    out = {
         "request_id": rid,
-        "compliance_score": percent,
+        "reviewer": reviewer,
+        "order_type": facts.get("order_type"),
+        "doc_kind": facts.get("doc_kind"),
+        "signature": sig,
+        "compliance_score": score,
         "risk_level": risk,
-        "missing_items": missing_items,
-        "results": results_list
+        "missing_items": missing,
+        "results": results,
+        "facts": facts
     }
 
-    if req.params.get("debug") == "1":
-        output["timing_ms"] = {
-            "llm": t_llm.ms(),
-            "total": t_all.ms()
-        }
+    if debug:
+        out["timing_ms"] = {"llm": t_llm.ms(), "total": t_all.ms()}
 
-    return _resp(200, rid, output)
+    return _resp(200, rid, out)
 
 
 def _resp(code: int, rid: str, obj: dict) -> func.HttpResponse:
-
     resp = func.HttpResponse(
         body=json.dumps(obj, ensure_ascii=False),
         status_code=code,
         mimetype="application/json"
     )
-
     resp.headers["x-request-id"] = rid
-
     return resp
