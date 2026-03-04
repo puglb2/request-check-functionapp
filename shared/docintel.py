@@ -13,7 +13,6 @@ def extract_text(file_input) -> str:
     if not endpoint or not key:
         raise RuntimeError("Missing DOC_INTEL_ENDPOINT or DOC_INTEL_KEY")
 
-    # Detect base64 vs raw bytes
     if isinstance(file_input, bytes):
 
         try:
