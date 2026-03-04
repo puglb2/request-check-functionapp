@@ -1,108 +1,138 @@
 # engine/rules.py
 
-def _result(item_id: str, status: str, evidence: str):
-    return {"id": item_id, "status": status, "evidence": evidence or ""}
+
+def result(id, status, evidence=""):
+    return {
+        "id": id,
+        "status": status,
+        "evidence": evidence
+    }
 
 
-def run_doc_kind_rules(facts: dict):
-    """
-    Independent of order_type:
-    - subpoena -> satisfactory assurance
-    - workers_comp -> wording indicates workers comp
-    - disability -> 1699 form
-    """
+def evaluate_bool(id, value, evidence=""):
+
+    if value is True:
+        return result(id, "present", evidence)
+
+    if value is False:
+        return result(id, "missing", evidence)
+
+    return result(id, "unclear", evidence)
+
+
+def run_full_hipaa_rules(facts):
 
     results = []
 
-    doc_kind = facts.get("doc_kind", "unknown")
-    ev = (facts.get("evidence") or {})
+    ev = facts.get("evidence", {})
+
+    # -------------------------
+    # HIPAA AUTHORIZATION ITEMS
+    # -------------------------
+
+    results.append(evaluate_bool("NAME", facts.get("patient_name_present"), ev.get("patient_name_present")))
+    results.append(evaluate_bool("SSN", facts.get("ssn_present"), ev.get("ssn_present")))
+    results.append(evaluate_bool("DOB", facts.get("dob_present"), ev.get("dob_present")))
+
+    results.append(evaluate_bool("SENSITIVE_PHRASE", facts.get("sensitive_phrase_present"), ev.get("sensitive_phrase_present")))
+
+    results.append(evaluate_bool("LETTER_OF_REP", facts.get("letter_of_rep_present"), ev.get("letter_of_rep_present")))
+
+    results.append(evaluate_bool("BILLING_REQUESTED", facts.get("billing_requested"), ev.get("billing_requested")))
+
+    results.append(evaluate_bool("INFO_DESCRIPTION", facts.get("info_description_present"), ev.get("info_description_present")))
+
+    results.append(evaluate_bool("PROVIDER_IDENTIFIED", facts.get("provider_identified"), ev.get("provider_identified")))
+
+    results.append(evaluate_bool("REQUESTOR_IDENTIFIED", facts.get("requestor_identified"), ev.get("requestor_identified")))
+
+    results.append(evaluate_bool("PURPOSE", facts.get("purpose_present"), ev.get("purpose_present")))
+
+    results.append(evaluate_bool("EXPIRATION", facts.get("expiration_present"), ev.get("expiration_present")))
+
+    results.append(evaluate_bool("SIGNATURE_DATE", facts.get("signature_date_present"), ev.get("signature_date_present")))
+
+    results.append(evaluate_bool("AUTHORITY_DOC", facts.get("authority_doc_present"), ev.get("authority_doc_present")))
+
+    results.append(evaluate_bool("REVOCATION_STATEMENT", facts.get("revocation_statement_present"), ev.get("revocation_statement_present")))
+
+    results.append(evaluate_bool("REDISCLOSURE_STATEMENT", facts.get("redisclosure_statement_present"), ev.get("redisclosure_statement_present")))
+
+    # -------------------------
+    # DOCUMENT TYPE RULES
+    # -------------------------
+
+    doc_kind = facts.get("doc_kind")
 
     if doc_kind == "subpoena":
-        v = facts.get("has_satisfactory_assurance")
-        if v is True:
-            results.append(_result("SUBPOENA_SATISFACTORY_ASSURANCE", "present", ev.get("has_satisfactory_assurance", "")))
-        elif v is False:
-            results.append(_result("SUBPOENA_SATISFACTORY_ASSURANCE", "missing", ev.get("has_satisfactory_assurance", "")))
-        else:
-            results.append(_result("SUBPOENA_SATISFACTORY_ASSURANCE", "unclear", ev.get("has_satisfactory_assurance", "")))
+
+        results.append(
+            evaluate_bool(
+                "SUBPOENA_SATISFACTORY_ASSURANCE",
+                facts.get("has_satisfactory_assurance"),
+                ev.get("has_satisfactory_assurance")
+            )
+        )
 
     if doc_kind == "workers_comp":
-        v = facts.get("has_workers_comp_wording")
-        if v is True:
-            results.append(_result("WORKERS_COMP_WORDING", "present", ev.get("has_workers_comp_wording", "")))
-        elif v is False:
-            results.append(_result("WORKERS_COMP_WORDING", "missing", ev.get("has_workers_comp_wording", "")))
-        else:
-            results.append(_result("WORKERS_COMP_WORDING", "unclear", ev.get("has_workers_comp_wording", "")))
+
+        results.append(
+            evaluate_bool(
+                "WORKERS_COMP_WORDING",
+                facts.get("has_workers_comp_wording"),
+                ev.get("has_workers_comp_wording")
+            )
+        )
 
     if doc_kind == "disability":
-        v = facts.get("has_1699_form")
-        if v is True:
-            results.append(_result("DISABILITY_1699_FORM", "present", ev.get("has_1699_form", "")))
-        elif v is False:
-            results.append(_result("DISABILITY_1699_FORM", "missing", ev.get("has_1699_form", "")))
-        else:
-            results.append(_result("DISABILITY_1699_FORM", "unclear", ev.get("has_1699_form", "")))
 
-    return results
+        results.append(
+            evaluate_bool(
+                "DISABILITY_1699_FORM",
+                facts.get("has_1699_form"),
+                ev.get("has_1699_form")
+            )
+        )
 
+    # -------------------------
+    # SIGNATURE AUTHORITY
+    # -------------------------
 
-def run_signature_delegation_rules(facts: dict):
-    """
-    - If patient did NOT sign, must have authority-to-sign documentation.
-    - If requestor isn't the entity needing records, require letter of rep.
-      Exception: if on behalf of patient AND patient signed -> LoR not required.
-    """
-    results = []
-    ev = (facts.get("evidence") or {})
+    if facts.get("patient_signed") is False:
 
-    patient_signed = facts.get("patient_signed")
-    has_authority = facts.get("has_authority_to_sign_doc")
-
-    if patient_signed is False:
-        if has_authority is True:
-            results.append(_result("AUTHORITY_TO_SIGN", "present", ev.get("has_authority_to_sign_doc", "")))
-        elif has_authority is False:
-            results.append(_result("AUTHORITY_TO_SIGN", "missing", ev.get("has_authority_to_sign_doc", "")))
-        else:
-            results.append(_result("AUTHORITY_TO_SIGN", "unclear", ev.get("has_authority_to_sign_doc", "")))
-
-    on_behalf = facts.get("request_on_behalf_of_patient")
-    has_lor = facts.get("has_letter_of_rep")
-
-    # If we know it is on behalf of patient AND patient signed -> LoR not required
-    if on_behalf is True and patient_signed is True:
-        results.append(_result("LETTER_OF_REP", "present", "Not required (patient signed and request is on behalf of patient)."))
-        return results
-
-    # Otherwise, if unclear, treat as standard LoR expectation
-    if has_lor is True:
-        results.append(_result("LETTER_OF_REP", "present", ev.get("has_letter_of_rep", "")))
-    elif has_lor is False:
-        results.append(_result("LETTER_OF_REP", "missing", ev.get("has_letter_of_rep", "")))
-    else:
-        results.append(_result("LETTER_OF_REP", "unclear", ev.get("has_letter_of_rep", "")))
+        results.append(
+            evaluate_bool(
+                "AUTHORITY_TO_SIGN",
+                facts.get("authority_doc_present"),
+                ev.get("authority_doc_present")
+            )
+        )
 
     return results
 
 
 def score_results(results):
-    score = 0.0
+
+    score = 0
     total = len(results)
 
     for r in results:
-        if r.get("status") == "present":
-            score += 1.0
-        elif r.get("status") == "unclear":
+
+        if r["status"] == "present":
+            score += 1
+
+        elif r["status"] == "unclear":
             score += 0.5
 
-    pct = round((score / total) * 100, 2) if total else 0.0
+    percent = round((score / total) * 100, 2) if total else 0
 
-    if pct >= 90:
+    if percent >= 90:
         risk = "low"
-    elif pct >= 70:
+
+    elif percent >= 70:
         risk = "moderate"
+
     else:
         risk = "high"
 
-    return pct, risk
+    return percent, risk
