@@ -39,7 +39,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         "request_id": rid,
         "file_size": len(file_bytes),
         "ocr_length": len(ocr_text),
-        "ocr_preview": ocr_text[:2000]
+        "ocr_preview": ocr_text[:12000]
     })
 
 
