@@ -5,7 +5,7 @@ from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.core.credentials import AzureKeyCredential
 
 
-def analyze_document(pdf_input) -> str:
+def extract_text(pdf_input) -> str:
 
     endpoint = os.getenv("DOC_INTEL_ENDPOINT")
     key = os.getenv("DOC_INTEL_KEY")
