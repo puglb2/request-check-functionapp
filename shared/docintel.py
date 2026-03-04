@@ -46,13 +46,6 @@ def extract_text(file_input) -> str:
 
     result = poller.result()
 
-    full_text = []
-
-    for page in result.pages:
-        if page.lines:
-            for line in page.lines:
-                full_text.append(line.content)
-
-    text_output = "\n".join(full_text)
+    text_output = result.content or ""
 
     return f"[PAGES DETECTED: {len(result.pages)}]\n\n{text_output}"
