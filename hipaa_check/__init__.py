@@ -10,11 +10,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     rid = get_request_id(req)
 
     # -----------------------------
-    # READ FILE FROM REQUEST
+    # GET FILE BYTES
     # -----------------------------
     file_bytes = None
 
-    # Preferred: multipart file upload
     try:
         if req.files:
             file = req.files.get("file")
@@ -23,7 +22,6 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     except Exception:
         pass
 
-    # Fallback: raw body upload
     if not file_bytes:
         file_bytes = req.get_body()
 
@@ -31,23 +29,34 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         return _resp(400, rid, {"error": "File required"})
 
     # -----------------------------
-    # DEBUG: verify correct bytes
+    # SAVE FILE FOR DEBUG
     # -----------------------------
-    if not file_bytes.startswith(b"%PDF"):
-        return _resp(400, rid, {
-            "error": "Uploaded file is not a valid PDF",
-            "first_bytes": str(file_bytes[:50])
+    try:
+        with open("/tmp/uploaded.pdf", "wb") as f:
+            f.write(file_bytes)
+    except Exception as e:
+        return _resp(500, rid, {
+            "error": "Failed to save debug file",
+            "details": str(e)
         })
 
     # -----------------------------
-    # OCR
+    # VERIFY FILE CONTENT
+    # -----------------------------
+    first_bytes = str(file_bytes[:20])
+    file_size = len(file_bytes)
+
+    # -----------------------------
+    # RUN OCR
     # -----------------------------
     try:
         ocr_text = extract_text(file_bytes)
     except Exception as e:
         return _resp(500, rid, {
             "error": "OCR failed",
-            "details": str(e)
+            "details": str(e),
+            "file_size": file_size,
+            "first_bytes": first_bytes
         })
 
     # -----------------------------
@@ -58,13 +67,14 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     ocr_text = re.sub(r'[ \t]+', ' ', ocr_text)
 
     # -----------------------------
-    # DEBUG RESPONSE
+    # RETURN DEBUG INFO
     # -----------------------------
     return _resp(200, rid, {
         "request_id": rid,
-        "file_size": len(file_bytes),
+        "file_size": file_size,
+        "first_bytes": first_bytes,
         "ocr_length": len(ocr_text),
-        "ocr_preview": ocr_text[:2000]
+        "ocr_preview": ocr_text[:12000]
     })
 
 
