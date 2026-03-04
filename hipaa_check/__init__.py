@@ -41,7 +41,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     return _resp(200, rid, {
         "request_id": rid,
         "ocr_length": len(ocr_text),
-        "ocr_preview": ocr_text[:2000]
+        "ocr_preview": ocr_text[-2000:]
     })
 
 
