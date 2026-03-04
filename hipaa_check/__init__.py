@@ -10,18 +10,15 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     rid = get_request_id(req)
 
     # -----------------------------
-    # FILE UPLOAD
+    # READ RAW FILE BYTES
     # -----------------------------
-    if not req.files:
+    file_bytes = req.get_body()
+
+    if not file_bytes:
         return _resp(400, rid, {"error": "File required"})
 
-    file = req.files.get("file")
-
-    if not file:
-        return _resp(400, rid, {"error": "File missing"})
-
     try:
-        ocr_text = extract_text(file.read())
+        ocr_text = extract_text(file_bytes)
     except Exception as e:
         return _resp(500, rid, {
             "error": "OCR failed",
@@ -40,6 +37,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     # -----------------------------
     return _resp(200, rid, {
         "request_id": rid,
+        "file_size": len(file_bytes),
         "ocr_length": len(ocr_text),
         "ocr_preview": ocr_text[:2000]
     })
