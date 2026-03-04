@@ -5,9 +5,12 @@
       "type": "httpTrigger",
       "direction": "in",
       "name": "req",
-      "methods": ["post"],
-      "route": "hipaa_check"
+      "methods": ["post"]
     },
-    { "type": "http", "direction": "out", "name": "$return" }
+    {
+      "type": "http",
+      "direction": "out",
+      "name": "$return"
+    }
   ]
 }
