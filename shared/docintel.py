@@ -1,6 +1,5 @@
 import os
 import base64
-
 from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.core.credentials import AzureKeyCredential
 
@@ -14,7 +13,7 @@ def extract_text(file_input) -> str:
         raise RuntimeError("Missing DOC_INTEL_ENDPOINT or DOC_INTEL_KEY")
 
     # -----------------------------
-    # HANDLE INPUT TYPES
+    # Handle input (bytes or base64)
     # -----------------------------
     if isinstance(file_input, bytes):
 
@@ -36,7 +35,7 @@ def extract_text(file_input) -> str:
         raise RuntimeError("Unsupported document input type")
 
     # -----------------------------
-    # CREATE CLIENT
+    # Create client
     # -----------------------------
     client = DocumentIntelligenceClient(
         endpoint=endpoint,
@@ -44,18 +43,17 @@ def extract_text(file_input) -> str:
     )
 
     # -----------------------------
-    # RUN OCR
+    # Run OCR
     # -----------------------------
     poller = client.begin_analyze_document(
-        "prebuilt-read",
-        analyze_request=file_bytes,
-        content_type="application/pdf"
+        model_id="prebuilt-read",
+        body=file_bytes
     )
 
     result = poller.result()
 
     # -----------------------------
-    # RETURN FULL TEXT
+    # Return full OCR text
     # -----------------------------
     text_output = result.content or ""
 
