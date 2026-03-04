@@ -1,6 +1,8 @@
 azure-functions
-requests
 azure-ai-documentintelligence
 azure-core
-pdf2image
-Pillow
+requests
+
+PyMuPDF
+pillow
+numpy
