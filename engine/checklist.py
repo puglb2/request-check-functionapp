@@ -1,28 +1,22 @@
+# engine/checklist.py
+
 HIPAA_CHECKLIST = [
-    # BASIC CONTEXT FLAGS
-    {"id": "is_subpoena", "question": "Authorization present if not court order"},
-    {"id": "is_workers_comp", "question": "File number or authorization present"},
-    {"id": "is_disability", "question": "Disability request present"},
-
-    # CORE HIPAA REQUIREMENTS
-    {"id": "name", "question": "Patient name present"},
-    {"id": "ssn", "question": "SSN present"},
-    {"id": "dob", "question": "Date of birth present"},
-
-    {"id": "sensitive_clause", "question": "Authorization includes HIV/AIDS, mental illness, substance abuse clause"},
-    {"id": "letter_of_rep", "question": "Letter of representation present"},
-    {"id": "billing_request", "question": "Authorization allows release and billing request present"},
-
-    {"id": "info_description", "question": "Specific description of info to be disclosed"},
-    {"id": "authorized_discloser", "question": "Who can disclose PHI identified"},
-    {"id": "authorized_receiver", "question": "Who receives PHI identified"},
-
-    {"id": "purpose", "question": "Purpose of disclosure stated"},
-    {"id": "expiration", "question": "Expiration date or event present"},
-
-    {"id": "signature", "question": "Signature and date present"},
-    {"id": "authority_docs", "question": "Authority documentation present (POA, etc.)"},
-
-    {"id": "revocation", "question": "Right to revoke stated"},
-    {"id": "redisclosure", "question": "Redisclosure risk stated"}
+    {"id": "REQ_NAME", "question": "Name"},
+    {"id": "REQ_SSN", "question": "SS#"},
+    {"id": "REQ_DOB", "question": "Date of Birth"},
+    {
+        "id": "REQ_SENSITIVE_PHRASE",
+        "question": "Does the authorization have the phrase communicable diseases / HIV / AIDS / mental illness / chemical and/or alcohol dependency"
+    },
+    {"id": "REQ_LOR", "question": "Do you have a letter of representation"},
+    {"id": "REQ_BILLING", "question": "Is the authorization allowing for the release and are they asking for BILLING"},
+    {"id": "REQ_INFO_DESC", "question": "A description of the information to be used and disclosed (dates/part of record). Did we copy the correct information?"},
+    {"id": "REQ_PROVIDER_DISCLOSER", "question": "Identification of persons/class authorized to make the use/disclosure (PHYSICIAN)"},
+    {"id": "REQ_RECIPIENT", "question": "Identification of persons/class to whom disclosure is authorized (REQUESTER)"},
+    {"id": "REQ_PURPOSE", "question": "Description of each purpose of use/disclosure (WHY ARE THE DOCUMENTS NEEDED)"},
+    {"id": "REQ_EXPIRATION", "question": "An expiration date or event"},
+    {"id": "REQ_SIGNATURE_DATE", "question": "The individual's signature and date (verified with the Medical Record)"},
+    {"id": "REQ_AUTHORITY_DOC", "question": "Documentation/POA/etc showing authority to act for individual (if not patient signed)"},
+    {"id": "REQ_REVOKE", "question": "Statement individual may revoke authorization in writing + right to revoke info"},
+    {"id": "REQ_REDISCLOSE", "question": "Statement about potential for PHI to be redisclosed by recipient"},
 ]
